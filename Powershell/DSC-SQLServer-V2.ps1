@@ -1,42 +1,51 @@
-﻿Configuration Main {
+﻿Configuration SQLServerConfig {
     param (
+        [Parameter(Mandatory = $true)]
+        [string]$SqlInstanceName,
+
+        [Parameter(Mandatory = $true)]
         [string]$adminUsername,
+
+        [Parameter(Mandatory = $true)]
         [string]$adminPassword,
+
+        [Parameter(Mandatory = $true)]
         [string]$sqlServerCollation,
+
+        [Parameter(Mandatory = $true)]
         [int]$memoryCapMB
     )
 
-    Import-DscResource -ModuleName 'PSDscResources'
     Import-DscResource -ModuleName 'xSQLServer'
 
     Node localhost {
-        WindowsFeature 'NetFramework45' {
-            Name   = 'NET-Framework-45-Core'
+        # Ensure the NetFramework is installed (required by SQL Server)
+        WindowsFeature 'NetFramework' {
+            Name   = 'NET-Framework-Features'
             Ensure = 'Present'
         }
 
-        xSQLServerSetup 'InstallSQLServer' {
-            InstanceName        = 'MSSQLSERVER'
-            Features            = 'SQLENGINE,REPLICATION,FULLTEXT'
+        # Configure SQL Server Collation
+        xSQLServerSetup 'SetSQLCollation' {
+            InstanceName        = $SqlInstanceName
             SQLCollation        = $sqlServerCollation
-            SQLSysAdminAccounts = $adminUsername
-            InstallSQLDataDir   = 'D:\MSSQLData'
-            SQLUserDBDir        = 'D:\MSSQLData'
-            SQLUserDBLogDir     = 'E:\MSSQLLog'
-            SQLTempDBDir        = 'D:\MSSQL\TempDB'
-            SQLTempDBLogDir     = 'D:\MSSQL\TempDB'
-            AgtSvcStartupType   = 'Automatic'
-            SQLSvcAccount       = New-Object System.Management.Automation.PSCredential ("$adminUsername", (ConvertTo-SecureString "$adminPassword" -AsPlainText -Force))
-            SQLSysAdminAccounts = $adminUsername
+            SQLSvcAccount       = PSCredential {
+                UserName = $adminUsername
+                Password = (ConvertTo-SecureString $adminPassword -AsPlainText -Force)
+            }
+            DependsOn           = '[WindowsFeature]NetFramework'
+            Action              = 'Install'
+            Force               = $true
         }
 
-        xSQLServerMemory 'SetMaxMemory' {
-            SQLInstanceName = 'MSSQLSERVER'
+        # Configure SQL Server Memory Cap
+        xSQLServerMemory 'SetSQLMemory' {
+            InstanceName = $SqlInstanceName
             DynamicAlloc = $false
-            MaxMemory = $memoryCapMB
-            DependsOn = '[xSQLServerSetup]InstallSQLServer'
+            MaxMemory    = $memoryCapMB
+            DependsOn    = '[xSQLServerSetup]SetSQLCollation'
         }
     }
 }
 
-Main -OutputPath 'C:\DSCConfig'
+SQLServerConfig -OutputPath 'C:\DSCConfig'
